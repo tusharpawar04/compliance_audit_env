@@ -1,0 +1,85 @@
+# Instructions to Push Fixed Code to HuggingFace Space
+
+## You need your HuggingFace Access Token
+1. Go to https://huggingface.co/settings/tokens
+2. Create a new token with "write" access (or use existing one)
+3. Copy the token
+
+## Commands to Run
+
+### Option 1: Using Git with Token in URL (Recommended)
+```bash
+# Remove old remote if exists
+git remote remove hf
+
+# Add remote with your token
+git remote add hf https://tusharpawar21:YOUR_TOKEN_HERE@huggingface.co/spaces/tusharpawar21/compliance-audit-env
+
+# Push the fixes
+git push hf main --force
+```
+
+Replace `YOUR_TOKEN_HERE` with your actual HuggingFace access token.
+
+### Option 2: Using Git Credential Helper
+```bash
+# Configure git to remember credentials
+git config credential.helper store
+
+# Add remote
+git remote add hf https://huggingface.co/spaces/tusharpawar21/compliance-audit-env
+
+# Push (will prompt for username and token)
+git push hf main --force
+# Username: tusharpawar21
+# Password: YOUR_TOKEN_HERE
+```
+
+### Option 3: Manual Upload via Web Interface
+1. Go to https://huggingface.co/spaces/tusharpawar21/compliance-audit-env/tree/main
+2. Click "Files" tab
+3. Upload these modified files:
+   - server/compliance_environment.py
+   - client.py
+4. Commit changes
+
+## After Pushing
+
+### Wait for Space to Rebuild
+The space will automatically rebuild. You can monitor progress at:
+https://huggingface.co/spaces/tusharpawar21/compliance-audit-env
+
+Look for "Building" status to change to "Running" (takes 2-3 minutes)
+
+### Test the Deployment
+Once the space is running, test it:
+
+```bash
+python test_fixed_client.py
+```
+
+You should see:
+```
+✓ Reset successful!
+✓ Step successful!
+✓ ALL TESTS PASSED!
+```
+
+### Run Final Validation
+```bash
+python deep_sweep_analysis.py
+```
+
+Expected: All checks passed, 0 critical errors
+
+### Submit to Competition
+Once all tests pass, submit:
+- GitHub: https://github.com/tusharpawar04/compliance_audit_env.git
+- HuggingFace: https://huggingface.co/spaces/tusharpawar21/compliance-audit-env
+
+## What Was Fixed
+1. Environment.step() now returns only Observation (not tuple)
+2. WebSocket messages now use correct format with 'data' field
+3. WebSocket connection checking fixed (.close_code instead of .closed)
+
+All fixes are committed to GitHub and ready to push to HuggingFace.
