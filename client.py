@@ -35,7 +35,7 @@ class EnvClient:
     
     async def _connect(self) -> None:
         """Establish WebSocket connection to the server."""
-        if self._ws is None or self._ws.closed:
+        if self._ws is None or self._ws.close_code is not None:
             try:
                 self._ws = await websockets.connect(self.url)
             except Exception as e:
@@ -82,7 +82,7 @@ class EnvClient:
         """
         message = {
             "type": "reset",
-            "task": task
+            "data": {"task": task}
         }
         
         try:
@@ -93,7 +93,9 @@ class EnvClient:
                 raise ValueError(response["error"])
             
             # Parse observation from response
-            return ComplianceObservation(**response["observation"])
+            # OpenEnv protocol: response = {"type": "observation", "data": {"observation": {...}, "reward": ..., "done": ...}}
+            response_data = response.get("data", {})
+            return ComplianceObservation(**response_data.get("observation", response_data))
         except ConnectionError:
             raise
         except Exception as e:
@@ -118,21 +120,32 @@ class EnvClient:
         """
         message = {
             "type": "step",
-            "action": action.model_dump()
+            "data": action.model_dump()
         }
         
         try:
             response = await self._send_and_receive(message)
             
             # Check for error response from server
-            if "error" in response:
-                raise RuntimeError(response["error"])
+            if "error" in response or response.get("type") == "error":
+                error_msg = response.get("error") or response.get("data", {}).get("message", str(response))
+                raise RuntimeError(error_msg)
             
             # Parse response components
-            observation = ComplianceObservation(**response["observation"])
-            reward = float(response["reward"])
-            done = bool(response["done"])
-            info = dict(response.get("info", {}))
+            # OpenEnv protocol: response = {"type": "observation", "data": {"observation": {...}, "reward": ..., "done": ...}}
+            response_data = response.get("data", {})
+            obs_data = response_data.get("observation", response_data)
+            observation = ComplianceObservation(**obs_data)
+            
+            # Extract reward and done from observation (they're embedded in the observation)
+            reward = float(observation.reward if observation.reward is not None else 0.0)
+            done = bool(observation.done)
+            
+            # Info dict (can be extended with additional metadata)
+            info: dict = {
+                "score": reward,
+                "step_num": observation.step_num
+            }
             
             return observation, reward, done, info
         except ConnectionError:
@@ -189,7 +202,7 @@ class EnvClient:
     
     async def async_close(self) -> None:
         """Asynchronously close the WebSocket connection."""
-        if self._ws is not None and not self._ws.closed:
+        if self._ws is not None and self._ws.close_code is None:
             await self._ws.close()
             self._ws = None
     

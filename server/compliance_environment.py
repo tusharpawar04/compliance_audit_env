@@ -191,7 +191,7 @@ class ComplianceEnvironment(Environment):
         composite_score = 0.6 * detection_score + 0.4 * rewrite_score
         return composite_score
 
-    def step(self, action: ComplianceAction) -> tuple[ComplianceObservation, float, bool, dict]:
+    def step(self, action: ComplianceAction) -> ComplianceObservation:
         """
         Execute one step in the environment with the agent's action.
         
@@ -202,7 +202,7 @@ class ComplianceEnvironment(Environment):
             action: Agent's compliance action
             
         Returns:
-            Tuple of (observation, reward, done, info)
+            ComplianceObservation with updated state, reward, and done flag
             
         Raises:
             RuntimeError: If no active episode (reset not called)
@@ -229,7 +229,7 @@ class ComplianceEnvironment(Environment):
         # Determine if episode is done
         done = self._episode_state.step_num >= 3 or score >= 0.85
         
-        # Create observation
+        # Create observation with reward and done embedded
         observation = ComplianceObservation(
             doc_id=self._episode_state.document["doc_id"],
             company_name=self._episode_state.document["company_name"],
@@ -247,13 +247,7 @@ class ComplianceEnvironment(Environment):
         self._episode_state.previous_score = score
         self._episode_state.feedback = feedback
         
-        # Info dict
-        info: dict[str, Any] = {
-            "score": score,
-            "step_num": self._episode_state.step_num
-        }
-        
-        return observation, score, done, info
+        return observation
     
     def state(self) -> dict:
         """
