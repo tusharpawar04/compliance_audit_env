@@ -82,7 +82,7 @@ async def test_websocket_protocol():
             
         # Test 2: Reset with explicit task
         print("\n[Test 2] Reset with explicit task='easy'...")
-        await ws.send(json.dumps({'type': 'reset', 'task': 'easy'}))
+        await ws.send(json.dumps({'type': 'reset', 'data': {'task': 'easy'}}))
         response = await asyncio.wait_for(ws.recv(), timeout=5)
         data = json.loads(response)
         
@@ -110,62 +110,46 @@ async def test_websocket_protocol():
         print("\n[Test 3] Step with flat action format...")
         msg_flat = {
             'type': 'step',
-            'violation_ids': ['RULE_01'],
-            'explanation': 'Test explanation',
-            'suggested_rewrite': ''
-        }
-        await ws.send(json.dumps(msg_flat))
-        response = await asyncio.wait_for(ws.recv(), timeout=5)
-        data = json.dumps(response)
-        
-        flat_works = data.get('type') != 'error'
-        
-        # Test 4: Step with nested action format
-        print("\n[Test 4] Step with nested action format...")
-        # Reset first
-        await ws.send(json.dumps({'type': 'reset', 'task': 'easy'}))
-        await asyncio.wait_for(ws.recv(), timeout=5)
-        
-        msg_nested = {
-            'type': 'step',
-            'action': {
+            'data': {
                 'violation_ids': ['RULE_01'],
                 'explanation': 'Test explanation',
                 'suggested_rewrite': ''
             }
         }
-        await ws.send(json.dumps(msg_nested))
+        await ws.send(json.dumps(msg_flat))
+        response = await asyncio.wait_for(ws.recv(), timeout=5)
+        data_flat = json.loads(response)
+        
+        flat_works = data_flat.get('type') != 'error'
+        
+        # Test 4: Step with nested action format (already correct format)
+        print("\n[Test 4] Testing step response...")
+        # Reset first
+        await ws.send(json.dumps({'type': 'reset', 'data': {'task': 'easy'}}))
+        await asyncio.wait_for(ws.recv(), timeout=5)
+        
+        # Step is already in correct format
+        await ws.send(json.dumps(msg_flat))
         response = await asyncio.wait_for(ws.recv(), timeout=5)
         data = json.loads(response)
         
-        nested_works = data.get('type') != 'error'
+        step_works = data.get('type') != 'error'
         
-        # Determine which format works
-        if not flat_works and not nested_works:
+        # Determine result
+        if not step_works:
             log_error("STEP_FORMAT",
-                     "Neither flat nor nested action format works",
-                     f"Flat response: {json.dumps(data_flat)[:200]}, Nested response: {json.dumps(data)[:200]}")
-        elif flat_works and nested_works:
-            log_warning("STEP_FORMAT",
-                       "Both flat and nested formats work - protocol ambiguity")
-        elif flat_works:
-            log_pass("Step with flat action format works")
-            log_warning("STEP_FORMAT", "Only flat format works, nested doesn't")
+                     "Step action format failed",
+                     f"Response: {json.dumps(data)[:200]}")
         else:
-            log_pass("Step with nested action format works")
-            log_warning("STEP_FORMAT", "Only nested format works, flat doesn't")
+            log_pass("Step with correct action format works")
         
         # Test 5: Step response structure
-        if nested_works or flat_works:
+        if step_works:
             print("\n[Test 5] Validating step response structure...")
             step_data = data.get('data', {})
             
             if 'observation' not in step_data:
                 log_error("STEP_RESPONSE", "Step response missing 'observation' field")
-            if 'reward' not in step_data:
-                log_error("STEP_RESPONSE", "Step response missing 'reward' field")
-            if 'done' not in step_data:
-                log_error("STEP_RESPONSE", "Step response missing 'done' field")
             
             obs = step_data.get('observation', {})
             if 'reward' not in obs:
@@ -242,7 +226,7 @@ async def test_environment_logic():
             suggested_rewrite=""
         )
         
-        obs, reward, done, info = env.step(action)
+        obs = env.step(action)
         
         if not hasattr(obs, 'reward'):
             log_error("ENV_STEP", "Step observation missing 'reward' attribute")
