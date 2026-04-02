@@ -1,0 +1,7 @@
+openai
+httpx
+pyyaml
+hypothesis
+pytest
+openenv-core
+websockets

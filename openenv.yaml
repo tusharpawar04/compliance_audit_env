@@ -1,0 +1,15 @@
+name: compliance-audit-env
+version: 1.0.0
+description: >
+  A reinforcement learning environment for regulatory compliance auditing.
+  AI agents act as compliance officers, identifying GDPR violations in company
+  documents and suggesting compliant rewrites. Built on openenv-core framework.
+author: Kiro AI
+tasks:
+  - easy
+  - medium
+  - hard
+baseline_scores:
+  easy: 0.70
+  medium: 0.43
+  hard: 0.22
