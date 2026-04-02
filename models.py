@@ -97,3 +97,13 @@ class ComplianceObservation(BaseModel):
     previous_score: float = Field(
         description="Your score from the previous step (0.0 to 1.0)"
     )
+    
+    reward: float = Field(
+        default=0.0,
+        description="Reward for the current step (0.0 to 1.0)"
+    )
+    
+    done: bool = Field(
+        default=False,
+        description="Whether the episode is complete"
+    )

@@ -40,7 +40,7 @@ class ComplianceEnvironment(Environment):
         super().__init__()
         self._episode_state: EpisodeState | None = None
     
-    def reset(self, task: str) -> ComplianceObservation:
+    def reset(self, task: str = "easy") -> ComplianceObservation:
         """
         Reset the environment and start a new episode.
         
@@ -79,7 +79,9 @@ class ComplianceEnvironment(Environment):
             task_name=task,
             step_num=1,
             feedback="",
-            previous_score=0.0
+            previous_score=0.0,
+            reward=0.0,
+            done=False
         )
 
     def _grade_easy(self, action: ComplianceAction) -> float:
@@ -236,7 +238,9 @@ class ComplianceEnvironment(Environment):
             task_name=self._episode_state.task_name,
             step_num=self._episode_state.step_num,
             feedback=feedback,
-            previous_score=score
+            previous_score=score,
+            reward=score,
+            done=done
         )
         
         # Update episode state
