@@ -1,5 +1,5 @@
 name: compliance-audit-env
-version: 1.0.0
+version: 1.0.1
 description: >
   A reinforcement learning environment for regulatory compliance auditing.
   AI agents act as compliance officers, identifying GDPR violations in company
