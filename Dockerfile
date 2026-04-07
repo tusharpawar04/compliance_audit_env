@@ -1,5 +1,8 @@
 FROM python:3.11-slim
 
+# Force rebuild - version 1.0.1
+ENV APP_VERSION=1.0.1
+
 WORKDIR /app
 
 # Copy all requirements
