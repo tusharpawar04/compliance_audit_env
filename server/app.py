@@ -3,6 +3,8 @@ FastAPI server for the compliance audit environment.
 
 Starts a server on port 7860 that agents can connect to via WebSocket.
 The server handles episode management, grading, and state tracking.
+
+Version: 1.0.1 - Grader bounds fix applied
 """
 
 import sys
