@@ -137,9 +137,9 @@ class EnvClient:
             obs_data = response_data.get("observation", response_data)
             observation = ComplianceObservation(**obs_data)
             
-            # Extract reward and done from observation (they're embedded in the observation)
-            reward = float(observation.reward if observation.reward is not None else 0.0)
-            done = bool(observation.done)
+            # Extract reward and done from response_data (they're at the top level, not in observation)
+            reward = float(response_data.get("reward", 0.0))
+            done = bool(response_data.get("done", False))
             
             # Info dict (can be extended with additional metadata)
             info: dict = {
