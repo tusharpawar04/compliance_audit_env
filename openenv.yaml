@@ -13,3 +13,13 @@ baseline_scores:
   easy: 0.70
   medium: 0.43
   hard: 0.22
+graders:
+  easy:
+    type: f1_score
+    description: "F1 score for violation detection (precision and recall)"
+  medium:
+    type: partial_credit
+    description: "Exact match + category partial credit for violation detection"
+  hard:
+    type: composite
+    description: "60% detection score + 40% rewrite quality"
