@@ -39,6 +39,18 @@ class ComplianceEnvironment(Environment):
         """Initialize the environment with no active episode."""
         super().__init__()
         self._episode_state: EpisodeState | None = None
+        
+        # Register graders for validation
+        self._graders = {
+            "easy": self._grade_easy,
+            "medium": self._grade_medium,
+            "hard": self._grade_hard
+        }
+    
+    @property
+    def graders(self) -> dict:
+        """Return available graders for this environment."""
+        return self._graders
     
     def reset(self, task: str = "easy") -> ComplianceObservation:
         """
