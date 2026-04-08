@@ -93,15 +93,15 @@ async def get_grader():
 @app.get("/graders", tags=["Environment Info"])
 async def get_graders():
     """
-    Get all grader configurations (backwards compatibility).
+    Get all grader configurations from openenv.yaml.
     """
+    config = load_openenv_config()
+    graders_config = config.get("graders", {})
+    
+    # Return graders from config
     return JSONResponse(content={
-        "graders": {
-            "easy": {"type": "f1_score", "description": "F1 score for violation detection"},
-            "medium": {"type": "partial_credit", "description": "Exact match + category partial credit"},
-            "hard": {"type": "composite", "description": "60% detection + 40% rewrite quality"}
-        },
-        "count": 3,
+        "graders": graders_config,
+        "count": len(graders_config),
         "tasks_with_graders": ["easy", "medium", "hard"]
     })
 
