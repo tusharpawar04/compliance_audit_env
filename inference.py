@@ -167,47 +167,15 @@ def get_model_action(
         )
 
 
-def main() -> None:
+def run_episode(openai_client: OpenAI, env_url: str, task_name: str) -> None:
     """
-    Main inference function.
+    Run a single episode for a specific task.
     
-    Runs one episode of the compliance audit environment with the specified task.
-    Emits structured logs in [START], [STEP], [END] format.
+    Args:
+        openai_client: OpenAI API client
+        env_url: WebSocket URL for environment
+        task_name: Task difficulty (easy, medium, hard)
     """
-    # Set random seed for reproducibility
-    random.seed(42)
-
-    # Validate API key
-    if not API_KEY:
-        print("[ERROR] HF_TOKEN or API_KEY environment variable not set", flush=True)
-        log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME)
-        log_end(success=False, steps=0, score=0.0, rewards=[])
-        sys.exit(1)
-
-    # Initialize OpenAI client
-    try:
-        openai_client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
-    except Exception as e:
-        print(f"[ERROR] Failed to initialize OpenAI client: {e}", flush=True)
-        log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME)
-        log_end(success=False, steps=0, score=0.0, rewards=[])
-        sys.exit(1)
-
-    # Initialize environment client
-    # Convert HTTPS URL to WSS for WebSocket connection
-    env_url = SPACE_URL.replace("https://", "wss://").replace("http://", "ws://") + "/ws"
-    
-    # Allow override for local testing
-    env_url = os.getenv("ENV_URL", env_url)
-
-    try:
-        client = EnvClient(url=env_url)
-    except Exception as e:
-        print(f"[ERROR] Failed to connect to environment: {e}", flush=True)
-        log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME)
-        log_end(success=False, steps=0, score=0.0, rewards=[])
-        sys.exit(1)
-
     # Episode tracking
     rewards: List[float] = []
     steps_taken = 0
@@ -215,11 +183,19 @@ def main() -> None:
     success = False
 
     # Emit [START] log
-    log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME)
+    log_start(task=task_name, env=BENCHMARK, model=MODEL_NAME)
+
+    try:
+        # Initialize environment client for this episode
+        client = EnvClient(url=env_url)
+    except Exception as e:
+        print(f"[ERROR] Failed to connect to environment: {e}", flush=True)
+        log_end(success=False, steps=0, score=0.0, rewards=[])
+        return
 
     try:
         # Reset environment
-        observation = client.reset(TASK_NAME)
+        observation = client.reset(task_name)
         done = False
 
         # Run episode
@@ -266,12 +242,48 @@ def main() -> None:
         try:
             client.close()
         except Exception as e:
-            print(
-                f"[DEBUG] Client close error: {e}", file=sys.stderr, flush=True
-            )
+            print(f"[DEBUG] Client close error: {e}", file=sys.stderr, flush=True)
 
         # Emit [END] log (always emitted)
         log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
+
+
+def main() -> None:
+    """
+    Main inference function.
+    
+    Runs ALL tasks (easy, medium, hard) of the compliance audit environment.
+    Emits structured logs in [START], [STEP], [END] format for each task.
+    """
+    # Set random seed for reproducibility
+    random.seed(42)
+
+    # Validate API key
+    if not API_KEY:
+        print("[ERROR] HF_TOKEN or API_KEY environment variable not set", flush=True)
+        # Still emit logs for all tasks even on error
+        for task in ["easy", "medium", "hard"]:
+            log_start(task=task, env=BENCHMARK, model=MODEL_NAME)
+            log_end(success=False, steps=0, score=0.0, rewards=[])
+        sys.exit(0)  # Exit cleanly
+
+    # Initialize OpenAI client
+    try:
+        openai_client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+    except Exception as e:
+        print(f"[ERROR] Failed to initialize OpenAI client: {e}", flush=True)
+        for task in ["easy", "medium", "hard"]:
+            log_start(task=task, env=BENCHMARK, model=MODEL_NAME)
+            log_end(success=False, steps=0, score=0.0, rewards=[])
+        sys.exit(0)
+
+    # Build environment URL
+    env_url = SPACE_URL.replace("https://", "wss://").replace("http://", "ws://") + "/ws"
+    env_url = os.getenv("ENV_URL", env_url)
+
+    # Run ALL tasks (easy, medium, hard)
+    for task_name in ["easy", "medium", "hard"]:
+        run_episode(openai_client, env_url, task_name)
 
 
 if __name__ == "__main__":
