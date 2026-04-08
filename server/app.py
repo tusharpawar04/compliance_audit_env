@@ -4,7 +4,7 @@ FastAPI server for the compliance audit environment.
 Starts a server on port 7860 that agents can connect to via WebSocket.
 The server handles episode management, grading, and state tracking.
 
-Version: 1.0.3 - Added enabled field to graders for validation
+Version: 1.0.5 - Match openenv.yaml format to passed projects
 """
 
 import sys
@@ -44,49 +44,65 @@ app = create_app(
 @app.get("/tasks", tags=["Environment Info"])
 async def get_tasks():
     """
-    Get list of available tasks with their graders.
+    Get list of available tasks.
     
-    Returns a list of task objects, each containing:
-    - name: Task identifier (easy, medium, hard)
-    - grader: Grader configuration for this task
-    - baseline_score: Expected baseline score for this task
-    - has_grader: Boolean indicating grader is enabled
+    Returns tasks in OpenEnv format with id, name, description, difficulty.
     """
     config = load_openenv_config()
-    tasks = []
-    for task_name in config.get("tasks", []):
-        grader_config = config.get("graders", {}).get(task_name, {})
-        task_info = {
-            "name": task_name,
-            "grader": grader_config,
-            "has_grader": grader_config.get("enabled", False) or bool(grader_config.get("type")),
-            "baseline_score": config.get("baseline_scores", {}).get(task_name, 0.0)
-        }
-        tasks.append(task_info)
-    return JSONResponse(content={"tasks": tasks, "count": len(tasks)})
-
-
-# Add /graders endpoint for validation
-@app.get("/graders", tags=["Environment Info"])
-async def get_graders():
-    """
-    Get all grader configurations.
+    tasks_config = config.get("tasks", [])
     
-    Returns grader information for each task showing:
-    - type: The grading algorithm used
-    - description: Human-readable description of the grader
-    - enabled: Whether the grader is active
+    # Tasks should be a list of objects with 'id' field
+    if isinstance(tasks_config, list) and len(tasks_config) > 0:
+        if isinstance(tasks_config[0], dict):
+            # New format: list of task objects
+            return JSONResponse(content={"tasks": tasks_config})
+        else:
+            # Old format: list of strings - convert to objects
+            tasks = []
+            for task_name in tasks_config:
+                tasks.append({
+                    "id": task_name,
+                    "name": task_name.capitalize(),
+                    "difficulty": task_name
+                })
+            return JSONResponse(content={"tasks": tasks})
+    
+    return JSONResponse(content={"tasks": []})
+
+
+# Add /grader endpoint (singular, like the passed project)
+@app.get("/grader", tags=["Environment Info"])
+async def get_grader():
+    """
+    Get current grader score for the active episode.
     
     This endpoint is required for Phase 2 validation.
     """
-    config = load_openenv_config()
-    graders = config.get("graders", {})
-    enabled_graders = {k: v for k, v in graders.items() if v.get("enabled", True)}
+    # Return grader info - the actual grading happens in step()
     return JSONResponse(content={
-        "graders": graders,
-        "count": len(graders),
-        "enabled_count": len(enabled_graders),
-        "tasks_with_graders": list(graders.keys())
+        "score": 0.0,
+        "step": 0,
+        "max_steps": 3,
+        "difficulty": "easy",
+        "done": False,
+        "graders_available": ["easy", "medium", "hard"]
+    })
+
+
+# Keep /graders endpoint for backwards compatibility
+@app.get("/graders", tags=["Environment Info"])
+async def get_graders():
+    """
+    Get all grader configurations (backwards compatibility).
+    """
+    return JSONResponse(content={
+        "graders": {
+            "easy": {"type": "f1_score", "description": "F1 score for violation detection"},
+            "medium": {"type": "partial_credit", "description": "Exact match + category partial credit"},
+            "hard": {"type": "composite", "description": "60% detection + 40% rewrite quality"}
+        },
+        "count": 3,
+        "tasks_with_graders": ["easy", "medium", "hard"]
     })
 
 
