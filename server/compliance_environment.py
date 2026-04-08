@@ -220,12 +220,10 @@ class ComplianceEnvironment(Environment):
             
         Returns:
             ComplianceObservation with updated state, reward, and done flag
-            
-        Raises:
-            RuntimeError: If no active episode (reset not called)
         """
+        # Auto-reset if no active episode (for stateless HTTP API compatibility)
         if self._episode_state is None:
-            raise RuntimeError("No active episode. Call reset() first.")
+            self.reset("easy")
         
         # Dispatch to appropriate grader based on task difficulty
         if self._episode_state.task_name == "easy":
