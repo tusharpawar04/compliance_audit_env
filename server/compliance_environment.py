@@ -113,24 +113,31 @@ class ComplianceEnvironment(Environment):
         actual = set(self._episode_state.document["violation_ids"])
         
         # Handle edge cases - return small non-zero value instead of 0.0
-        if len(predicted) == 0:
-            return 0.001
-        if len(actual) == 0:
-            return 0.001
+        if len(predicted) == 0 or len(actual) == 0:
+            return 0.01
         
         # Compute precision and recall
         intersection = predicted & actual
+        
+        if len(intersection) == 0:
+            return 0.01
+        
         precision = len(intersection) / len(predicted)
         recall = len(intersection) / len(actual)
         
         # Compute F1 score
         if precision + recall == 0:
-            return 0.001
+            return 0.01
         
         f1 = 2 * precision * recall / (precision + recall)
         
-        # Clamp to strictly between 0 and 1
-        return max(0.001, min(0.999, f1))
+        # Ensure strictly between 0 and 1 (never exactly 0.0 or 1.0)
+        if f1 <= 0.0:
+            return 0.01
+        elif f1 >= 1.0:
+            return 0.99
+        else:
+            return f1
     
     def _grade_medium(self, action: ComplianceAction) -> float:
         """
@@ -150,8 +157,8 @@ class ComplianceEnvironment(Environment):
         actual = self._episode_state.document["violation_ids"]
         predicted = action.violation_ids
         
-        if len(actual) == 0:
-            return 0.001
+        if len(actual) == 0 or len(predicted) == 0:
+            return 0.01
         
         total_credit = 0.0
         
@@ -170,8 +177,13 @@ class ComplianceEnvironment(Environment):
                             total_credit += 0.5 / len(actual)
                             break  # Only award partial credit once per known violation
         
-        # Clamp to strictly between 0 and 1
-        return max(0.001, min(0.999, total_credit))
+        # Ensure strictly between 0 and 1 (never exactly 0.0 or 1.0)
+        if total_credit <= 0.0:
+            return 0.01
+        elif total_credit >= 1.0:
+            return 0.99
+        else:
+            return total_credit
     
     def _grade_hard(self, action: ComplianceAction) -> float:
         """
@@ -192,8 +204,8 @@ class ComplianceEnvironment(Environment):
         # Compute rewrite quality score
         rewrite_keywords = self._episode_state.document.get("rewrite_keywords", [])
         
-        if len(rewrite_keywords) == 0:
-            rewrite_score = 0.001
+        if len(rewrite_keywords) == 0 or not action.suggested_rewrite.strip():
+            rewrite_score = 0.01
         else:
             suggested_rewrite_lower = action.suggested_rewrite.lower()
             keyword_hits = sum(
@@ -201,12 +213,22 @@ class ComplianceEnvironment(Environment):
                 if keyword.lower() in suggested_rewrite_lower
             )
             rewrite_score = keyword_hits / len(rewrite_keywords)
+            # Ensure rewrite score is also bounded
+            if rewrite_score <= 0.0:
+                rewrite_score = 0.01
+            elif rewrite_score >= 1.0:
+                rewrite_score = 0.99
         
         # Composite: 60% detection + 40% rewrite
         composite_score = 0.6 * detection_score + 0.4 * rewrite_score
         
-        # Clamp to strictly between 0 and 1
-        return max(0.001, min(0.999, composite_score))
+        # Ensure strictly between 0 and 1 (never exactly 0.0 or 1.0)
+        if composite_score <= 0.0:
+            return 0.01
+        elif composite_score >= 1.0:
+            return 0.99
+        else:
+            return composite_score
 
     def step(self, action: ComplianceAction) -> ComplianceObservation:
         """
