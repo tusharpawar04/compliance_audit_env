@@ -13,7 +13,6 @@ ENVIRONMENT VARIABLES:
 - API_BASE_URL: The API endpoint for the LLM (default: https://router.huggingface.co/v1)
 - MODEL_NAME: The model identifier (default: Qwen/Qwen2.5-72B-Instruct)
 - HF_TOKEN: Your Hugging Face API key
-- TASK_NAME: Task difficulty (default: easy)
 """
 
 import json
@@ -24,16 +23,13 @@ from typing import List, Optional
 
 from openai import OpenAI
 
-from client import EnvClient
 from models import ComplianceAction, ComplianceObservation
 
 # Environment configuration
 API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
-TASK_NAME = os.getenv("TASK_NAME", "easy")
 BENCHMARK = "compliance-audit-env"
-SPACE_URL = os.getenv("SPACE_URL", "https://tusharpawar21-compliance-audit-env.hf.space")
 
 # Episode configuration
 MAX_STEPS = 3  # Environment allows up to 3 attempts
@@ -65,9 +61,9 @@ def log_step(
 
 def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
     """Emit [END] log line."""
-    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
+    rewards_str = ",".join(f"{r:.2f}" for r in rewards) if rewards else "0.00"
     print(
-        f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}",
+        f"[END] success={str(success).lower()} steps={steps} score={score:.2f} rewards={rewards_str}",
         flush=True,
     )
 
@@ -167,13 +163,13 @@ def get_model_action(
         )
 
 
-def run_episode(openai_client: OpenAI, env_url: str, task_name: str) -> None:
+def run_episode(openai_client: OpenAI, env: "ComplianceEnvironment", task_name: str) -> None:
     """
     Run a single episode for a specific task.
     
     Args:
         openai_client: OpenAI API client
-        env_url: WebSocket URL for environment
+        env: ComplianceEnvironment instance
         task_name: Task difficulty (easy, medium, hard)
     """
     # Episode tracking
@@ -186,16 +182,8 @@ def run_episode(openai_client: OpenAI, env_url: str, task_name: str) -> None:
     log_start(task=task_name, env=BENCHMARK, model=MODEL_NAME)
 
     try:
-        # Initialize environment client for this episode
-        client = EnvClient(url=env_url)
-    except Exception as e:
-        print(f"[ERROR] Failed to connect to environment: {e}", flush=True)
-        log_end(success=False, steps=0, score=0.0, rewards=[])
-        return
-
-    try:
-        # Reset environment
-        observation = client.reset(task_name)
+        # Reset environment for this task
+        observation = env.reset(task_name)
         done = False
 
         # Run episode
@@ -211,7 +199,9 @@ def run_episode(openai_client: OpenAI, env_url: str, task_name: str) -> None:
 
             # Execute step
             try:
-                observation, reward, done, info = client.step(action)
+                observation = env.step(action)
+                reward = observation.reward
+                done = observation.done
                 error = None
             except Exception as e:
                 print(f"[DEBUG] Step execution failed: {e}", file=sys.stderr, flush=True)
@@ -238,12 +228,6 @@ def run_episode(openai_client: OpenAI, env_url: str, task_name: str) -> None:
         success = False
 
     finally:
-        # Close client
-        try:
-            client.close()
-        except Exception as e:
-            print(f"[DEBUG] Client close error: {e}", file=sys.stderr, flush=True)
-
         # Emit [END] log (always emitted)
         log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
 
@@ -277,13 +261,13 @@ def main() -> None:
             log_end(success=False, steps=0, score=0.0, rewards=[])
         sys.exit(0)
 
-    # Build environment URL
-    env_url = SPACE_URL.replace("https://", "wss://").replace("http://", "ws://") + "/ws"
-    env_url = os.getenv("ENV_URL", env_url)
+    # Initialize environment directly (like passed projects do)
+    from server.compliance_environment import ComplianceEnvironment
+    env = ComplianceEnvironment()
 
     # Run ALL tasks (easy, medium, hard)
     for task_name in ["easy", "medium", "hard"]:
-        run_episode(openai_client, env_url, task_name)
+        run_episode(openai_client, env, task_name)
 
 
 if __name__ == "__main__":

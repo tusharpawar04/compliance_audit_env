@@ -1,22 +1,25 @@
 """
 FastAPI server for the compliance audit environment.
 
-Starts a server on port 7860 that agents can connect to via WebSocket.
+Starts a server on port 7860 that agents can connect to via HTTP and WebSocket.
 The server handles episode management, grading, and state tracking.
 
-Version: 1.0.5 - Match openenv.yaml format to passed projects
+Version: 2.0.0 - Custom FastAPI app with global state (like passed projects)
 """
 
 import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Optional
 
 # Add parent directory to path so we can import from root
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import uvicorn
 import yaml
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
-from openenv.core.env_server import create_app
+from pydantic import BaseModel
 
 from models import ComplianceAction, ComplianceObservation
 from server.compliance_environment import ComplianceEnvironment
@@ -30,83 +33,189 @@ def load_openenv_config():
         return yaml.safe_load(f)
 
 
-# Create the FastAPI app
-# The create_app factory handles all the WebSocket routing and state management
-app = create_app(
-    env=lambda: ComplianceEnvironment(),
-    action_cls=ComplianceAction,
-    observation_cls=ComplianceObservation,
-    env_name="compliance-audit-env"
+# Global environment instance (persists state between requests)
+_env: Optional[ComplianceEnvironment] = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Initialize environment on startup."""
+    global _env
+    _env = ComplianceEnvironment()
+    yield
+    _env = None
+
+
+app = FastAPI(
+    title="Compliance Audit Environment",
+    description="OpenEnv environment for training AI agents to identify GDPR violations.",
+    version="2.0.0",
+    lifespan=lifespan,
 )
 
 
-# Add /tasks endpoint for validation
-@app.get("/tasks", tags=["Environment Info"])
-async def get_tasks():
-    """
-    Get list of available tasks.
+def get_env() -> ComplianceEnvironment:
+    """Get the environment instance."""
+    global _env
+    if _env is None:
+        _env = ComplianceEnvironment()
+    return _env
+
+
+# Request/Response models
+class ResetRequest(BaseModel):
+    task_id: str = "easy"
+    difficulty: Optional[str] = None  # Alias for task_id
+
+
+class StepRequest(BaseModel):
+    action: ComplianceAction
+
+
+class ResetResponse(BaseModel):
+    observation: dict
+    reward: float = 0.0
+    done: bool = False
+
+
+class StepResponse(BaseModel):
+    observation: dict
+    reward: float
+    done: bool
+
+
+# ---------------------------------------------------------------------------
+# Core endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint."""
+    return {"status": "healthy"}
+
+
+@app.post("/reset")
+async def reset(request: Optional[ResetRequest] = None):
+    """Reset the environment for a new episode."""
+    env = get_env()
+    task_id = "easy"
+    if request:
+        task_id = request.difficulty or request.task_id
     
-    Returns tasks in OpenEnv format with id, name, description, difficulty.
-    """
+    try:
+        observation = env.reset(task_id)
+        return {
+            "observation": observation.model_dump(),
+            "reward": 0.0,
+            "done": False
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Reset failed: {str(e)}")
+
+
+@app.post("/step")
+async def step(request: StepRequest):
+    """Execute an action in the environment."""
+    env = get_env()
+    
+    try:
+        observation = env.step(request.action)
+        return {
+            "observation": observation.model_dump(),
+            "reward": observation.reward,
+            "done": observation.done
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Step failed: {str(e)}")
+
+
+@app.get("/state")
+async def get_state():
+    """Get the current state without taking an action."""
+    env = get_env()
+    if env._episode_state is None:
+        return {"state": None, "info": {"step": 0, "max_steps": 3, "difficulty": "easy"}}
+    
+    return {
+        "state": {
+            "doc_id": env._episode_state.document["doc_id"],
+            "company_name": env._episode_state.document["company_name"],
+            "step_num": env._episode_state.step_num,
+            "task_name": env._episode_state.task_name,
+        },
+        "info": {
+            "step": env._episode_state.step_num,
+            "max_steps": 3,
+            "difficulty": env._episode_state.task_name,
+        }
+    }
+
+
+# ---------------------------------------------------------------------------
+# /tasks endpoint
+# ---------------------------------------------------------------------------
+
+@app.get("/tasks")
+async def get_tasks():
+    """Get list of available tasks."""
     config = load_openenv_config()
     tasks_config = config.get("tasks", [])
     
-    # Tasks should be a list of objects with 'id' field
     if isinstance(tasks_config, list) and len(tasks_config) > 0:
         if isinstance(tasks_config[0], dict):
-            # New format: list of task objects
-            return JSONResponse(content={"tasks": tasks_config})
-        else:
-            # Old format: list of strings - convert to objects
-            tasks = []
-            for task_name in tasks_config:
-                tasks.append({
-                    "id": task_name,
-                    "name": task_name.capitalize(),
-                    "difficulty": task_name
-                })
-            return JSONResponse(content={"tasks": tasks})
+            return {"tasks": tasks_config}
     
-    return JSONResponse(content={"tasks": []})
+    return {"tasks": []}
 
 
-# Add /grader endpoint (singular, like the passed project)
-@app.get("/grader", tags=["Environment Info"])
+# ---------------------------------------------------------------------------
+# /grader endpoint
+# ---------------------------------------------------------------------------
+
+@app.get("/grader")
 async def get_grader():
-    """
-    Get current grader score for the active episode.
+    """Get current grader score for the active episode."""
+    env = get_env()
     
-    This endpoint is required for Phase 2 validation.
-    """
-    # Return grader info - the actual grading happens in step()
-    return JSONResponse(content={
-        "score": 0.0,
-        "step": 0,
+    if env._episode_state is None:
+        return {
+            "score": 0.0,
+            "step": 0,
+            "max_steps": 3,
+            "difficulty": "easy",
+            "done": False,
+        }
+    
+    return {
+        "score": env._episode_state.previous_score if hasattr(env._episode_state, 'previous_score') else 0.0,
+        "step": env._episode_state.step_num,
         "max_steps": 3,
-        "difficulty": "easy",
-        "done": False,
-        "graders_available": ["easy", "medium", "hard"]
-    })
+        "difficulty": env._episode_state.task_name,
+        "done": env._episode_state.step_num >= 3,
+    }
 
 
-# Keep /graders endpoint for backwards compatibility
-@app.get("/graders", tags=["Environment Info"])
+# ---------------------------------------------------------------------------
+# /graders endpoint
+# ---------------------------------------------------------------------------
+
+@app.get("/graders")
 async def get_graders():
-    """
-    Get all grader configurations from openenv.yaml.
-    """
+    """Get all grader configurations."""
     config = load_openenv_config()
     graders_config = config.get("graders", {})
     
-    # Return graders from config
-    return JSONResponse(content={
+    return {
         "graders": graders_config,
         "count": len(graders_config),
         "tasks_with_graders": ["easy", "medium", "hard"]
-    })
+    }
 
 
-# Add a landing page at the root
+# ---------------------------------------------------------------------------
+# Root endpoint
+# ---------------------------------------------------------------------------
+
 @app.get("/", response_class=HTMLResponse)
 async def root():
     return """
@@ -158,13 +267,23 @@ async def root():
         <h2>Available Endpoints</h2>
         
         <div class="endpoint">
-            <strong>WebSocket Connection:</strong> <code>/ws</code><br>
-            Connect your agent here to interact with the environment
+            <strong>Reset:</strong> <code>POST /reset</code><br>
+            Start a new episode with {"task_id": "easy|medium|hard"}
         </div>
         
         <div class="endpoint">
-            <strong>API Documentation:</strong> <a href="/docs"><code>/docs</code></a><br>
-            Interactive API documentation (Swagger UI)
+            <strong>Step:</strong> <code>POST /step</code><br>
+            Execute an action and get reward
+        </div>
+        
+        <div class="endpoint">
+            <strong>Tasks:</strong> <a href="/tasks"><code>GET /tasks</code></a><br>
+            List available tasks with graders
+        </div>
+        
+        <div class="endpoint">
+            <strong>Grader:</strong> <a href="/grader"><code>GET /grader</code></a><br>
+            Get current grader score
         </div>
         
         <div class="endpoint">
@@ -172,13 +291,10 @@ async def root():
             Server status endpoint
         </div>
         
-        <h2>Quick Start</h2>
-        <pre><code>from client import EnvClient
-from models import ComplianceAction
-
-client = EnvClient(url="ws://localhost:7860/ws")
-obs = client.reset(task="easy")
-print(f"Company: {obs.company_name}")</code></pre>
+        <div class="endpoint">
+            <strong>API Documentation:</strong> <a href="/docs"><code>/docs</code></a><br>
+            Interactive API documentation (Swagger UI)
+        </div>
         
         <h2>Tasks</h2>
         <ul>
@@ -187,7 +303,7 @@ print(f"Company: {obs.company_name}")</code></pre>
             <li><strong>Hard:</strong> Detection + compliant rewrites (composite scoring)</li>
         </ul>
         
-        <p><a href="https://github.com/openenv-ai/openenv-core" target="_blank">Built with openenv-core</a> | <a href="https://huggingface.co/spaces/tusharpawar21/compliance-audit-env" target="_blank">View on HuggingFace</a></p>
+        <p><a href="https://huggingface.co/spaces/tusharpawar21/compliance-audit-env" target="_blank">View on HuggingFace</a></p>
     </body>
     </html>
     """
@@ -199,5 +315,4 @@ def main():
 
 
 if __name__ == "__main__":
-    # Run the server on port 7860 (HuggingFace Spaces standard)
     main()
