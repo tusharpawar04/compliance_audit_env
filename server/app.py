@@ -4,7 +4,7 @@ FastAPI server for the compliance audit environment.
 Starts a server on port 7860 that agents can connect to via WebSocket.
 The server handles episode management, grading, and state tracking.
 
-Version: 1.0.1 - Grader bounds fix applied
+Version: 1.0.2 - Added /tasks and /graders endpoints for validation
 """
 
 import sys
@@ -14,11 +14,20 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import uvicorn
-from fastapi.responses import HTMLResponse
+import yaml
+from fastapi.responses import HTMLResponse, JSONResponse
 from openenv.core.env_server import create_app
 
 from models import ComplianceAction, ComplianceObservation
 from server.compliance_environment import ComplianceEnvironment
+
+
+# Load openenv.yaml configuration
+def load_openenv_config():
+    """Load the openenv.yaml configuration file."""
+    config_path = Path(__file__).parent.parent / "openenv.yaml"
+    with open(config_path, "r") as f:
+        return yaml.safe_load(f)
 
 
 # Create the FastAPI app
@@ -29,6 +38,50 @@ app = create_app(
     observation_cls=ComplianceObservation,
     env_name="compliance-audit-env"
 )
+
+
+# Add /tasks endpoint for validation
+@app.get("/tasks", tags=["Environment Info"])
+async def get_tasks():
+    """
+    Get list of available tasks with their graders.
+    
+    Returns a list of task objects, each containing:
+    - name: Task identifier (easy, medium, hard)
+    - grader: Grader configuration for this task
+    - baseline_score: Expected baseline score for this task
+    """
+    config = load_openenv_config()
+    tasks = []
+    for task_name in config.get("tasks", []):
+        task_info = {
+            "name": task_name,
+            "grader": config.get("graders", {}).get(task_name, {}),
+            "baseline_score": config.get("baseline_scores", {}).get(task_name, 0.0)
+        }
+        tasks.append(task_info)
+    return JSONResponse(content={"tasks": tasks, "count": len(tasks)})
+
+
+# Add /graders endpoint for validation
+@app.get("/graders", tags=["Environment Info"])
+async def get_graders():
+    """
+    Get all grader configurations.
+    
+    Returns grader information for each task showing:
+    - type: The grading algorithm used
+    - description: Human-readable description of the grader
+    
+    This endpoint is required for Phase 2 validation.
+    """
+    config = load_openenv_config()
+    graders = config.get("graders", {})
+    return JSONResponse(content={
+        "graders": graders,
+        "count": len(graders),
+        "tasks_with_graders": list(graders.keys())
+    })
 
 
 # Add a landing page at the root
