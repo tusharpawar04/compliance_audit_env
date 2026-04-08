@@ -93,3 +93,17 @@ endpoints:
   health: GET /health
   tasks: GET /tasks
   grader: GET /grader
+
+graders:
+  f1_score:
+    type: f1_score
+    description: F1 score for violation detection (precision and recall)
+    tasks: [easy]
+  partial_credit:
+    type: partial_credit
+    description: Exact match + category partial credit for violation detection
+    tasks: [medium]
+  composite:
+    type: composite
+    description: 60% detection score + 40% rewrite quality
+    tasks: [hard]
