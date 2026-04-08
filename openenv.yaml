@@ -1,28 +1,95 @@
 name: compliance-audit-env
-version: 1.0.1
+version: "1.0.0"
 description: >
   A reinforcement learning environment for regulatory compliance auditing.
   AI agents act as compliance officers, identifying GDPR violations in company
   documents and suggesting compliant rewrites. Built on openenv-core framework.
-author: Kiro AI
+tags:
+  - openenv
+  - compliance
+  - gdpr
+  - legal
+author: tusharpawar21
+license: MIT
+
 tasks:
-  - easy
-  - medium
-  - hard
-baseline_scores:
-  easy: 0.70
-  medium: 0.43
-  hard: 0.22
-graders:
-  easy:
-    enabled: true
-    type: f1_score
-    description: "F1 score for violation detection (precision and recall)"
-  medium:
-    enabled: true
-    type: partial_credit
-    description: "Exact match + category partial credit for violation detection"
-  hard:
-    enabled: true
-    type: composite
-    description: "60% detection score + 40% rewrite quality"
+  - id: easy
+    name: Basic Violation Detection
+    description: Identify straightforward GDPR violations in simple privacy policies using F1 scoring.
+    difficulty: easy
+    max_steps: 3
+    expected_score: 0.70
+    grader: f1_score
+
+  - id: medium
+    name: Category-Based Detection
+    description: Detect violations with partial credit for matching violation categories.
+    difficulty: medium
+    max_steps: 3
+    expected_score: 0.43
+    grader: partial_credit
+
+  - id: hard
+    name: Detection and Rewrite
+    description: Identify violations and suggest compliant rewrites. Composite scoring (60% detection + 40% rewrite quality).
+    difficulty: hard
+    max_steps: 3
+    expected_score: 0.22
+    grader: composite
+
+observation_space:
+  type: object
+  fields:
+    doc_id:
+      type: string
+      description: Unique identifier for the document
+    company_name:
+      type: string
+      description: Name of the company whose document is being reviewed
+    document_text:
+      type: string
+      description: Full text of the privacy policy
+    rules_reference:
+      type: object
+      description: GDPR-style rulebook to apply
+    task_name:
+      type: string
+      description: Current difficulty level
+    step_num:
+      type: integer
+      description: Current step number
+    feedback:
+      type: string
+      description: Feedback from previous attempt
+    previous_score:
+      type: float
+      description: Score from previous step
+    reward:
+      type: float
+      range: [0.0, 1.0]
+      description: Reward signal after each step
+    done:
+      type: boolean
+      description: Whether the episode has ended
+
+action_space:
+  type: object
+  fields:
+    violation_ids:
+      type: array
+      items: string
+      description: List of rule IDs that are violated
+    explanation:
+      type: string
+      description: Legal reasoning for each violation
+    suggested_rewrite:
+      type: string
+      description: Compliant rewrite (for hard tasks)
+
+endpoints:
+  reset: POST /reset
+  step: POST /step
+  state: GET /state
+  health: GET /health
+  tasks: GET /tasks
+  grader: GET /grader
