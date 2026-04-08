@@ -4,7 +4,7 @@ FastAPI server for the compliance audit environment.
 Starts a server on port 7860 that agents can connect to via WebSocket.
 The server handles episode management, grading, and state tracking.
 
-Version: 1.0.2 - Added /tasks and /graders endpoints for validation
+Version: 1.0.3 - Added enabled field to graders for validation
 """
 
 import sys
@@ -50,13 +50,16 @@ async def get_tasks():
     - name: Task identifier (easy, medium, hard)
     - grader: Grader configuration for this task
     - baseline_score: Expected baseline score for this task
+    - has_grader: Boolean indicating grader is enabled
     """
     config = load_openenv_config()
     tasks = []
     for task_name in config.get("tasks", []):
+        grader_config = config.get("graders", {}).get(task_name, {})
         task_info = {
             "name": task_name,
-            "grader": config.get("graders", {}).get(task_name, {}),
+            "grader": grader_config,
+            "has_grader": grader_config.get("enabled", False) or bool(grader_config.get("type")),
             "baseline_score": config.get("baseline_scores", {}).get(task_name, 0.0)
         }
         tasks.append(task_info)
@@ -72,14 +75,17 @@ async def get_graders():
     Returns grader information for each task showing:
     - type: The grading algorithm used
     - description: Human-readable description of the grader
+    - enabled: Whether the grader is active
     
     This endpoint is required for Phase 2 validation.
     """
     config = load_openenv_config()
     graders = config.get("graders", {})
+    enabled_graders = {k: v for k, v in graders.items() if v.get("enabled", True)}
     return JSONResponse(content={
         "graders": graders,
         "count": len(graders),
+        "enabled_count": len(enabled_graders),
         "tasks_with_graders": list(graders.keys())
     })
 
